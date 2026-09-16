@@ -1,0 +1,44 @@
+name: Controlled workflow experiment
+description: Propose a bounded experiment in this public GitHub workflow sandbox.
+title: "[Experiment]: "
+labels:
+  - "type:chore"
+body:
+  - type: input
+    id: objective
+    attributes:
+      label: Experiment objective
+      description: State the single outcome this experiment should demonstrate.
+      placeholder: Demonstrate one bounded GitHub workflow behavior.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Workflow
+      description: Select the workflow under test.
+      options:
+        - Quickdraw
+        - YOLO pull request
+        - Other controlled workflow
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Execution plan
+      description: Describe the exact bounded actions and expected result.
+      placeholder: List the actions, target, and expected observable outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: safeguards
+    attributes:
+      label: Safety constraints
+      description: State the limits that prevent unrelated or destructive changes.
+      placeholder: Identify protected labels, unrelated resources, or operations that remain out of scope.
+    validations:
+      required: true

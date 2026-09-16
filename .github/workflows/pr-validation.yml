@@ -1,0 +1,67 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  issue-reference:
+    name: Check Issue Reference
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a closing issue reference
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! grep -Eiq '(closes|fixes|resolves) #[0-9]+' <<<"$PR_BODY"; then
+            echo "The PR body must contain Closes #N, Fixes #N, or Resolves #N."
+            exit 1
+          fi
+
+  approved-issue:
+    name: Check Issue Has status:approved
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require approval on the linked issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          reference="$(grep -Eio -m1 '(closes|fixes|resolves) #[0-9]+' <<<"$PR_BODY")" || {
+            echo "No closing issue reference was found."
+            exit 1
+          }
+          issue_number="${reference##*#}"
+          issue_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}")"
+
+          if jq -e 'has("pull_request")' <<<"$issue_json" >/dev/null; then
+            echo "The closing reference must target an issue, not another pull request."
+            exit 1
+          fi
+
+          if ! jq -e 'any(.labels[]?; .name == "status:approved")' <<<"$issue_json" >/dev/null; then
+            echo "Issue #${issue_number} must have the status:approved label."
+            exit 1
+          fi
+
+  type-label:
+    name: Check PR Has type:* Label
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require exactly one type label
+        run: |
+          mapfile -t type_labels < <(
+            jq -r '.pull_request.labels[].name | select(startswith("type:"))' "$GITHUB_EVENT_PATH"
+          )
+
+          if (( ${#type_labels[@]} != 1 )); then
+            echo "The PR must have exactly one type:* label."
+            exit 1
+          fi
+
+          echo "Found ${type_labels[0]}."
