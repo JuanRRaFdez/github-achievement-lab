@@ -16,15 +16,25 @@ jobs:
     steps:
       - name: Require a closing issue reference
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_BASE: ${{ github.base_ref }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          if ! grep -Eiq '(closes|fixes|resolves) #[0-9]+' <<<"$PR_BODY"; then
+          if [[ "$PR_BASE" != "$DEFAULT_BRANCH" ]]; then
+            echo "The PR must target the default branch (${DEFAULT_BRANCH})."
+            exit 1
+          fi
+
+          closing_reference_regex='(^|[^[:alnum:]_])(closes|fixes|resolves) #([0-9]+)([^[:alnum:]_]|$)'
+          shopt -s nocasematch
+          if [[ ! "$PR_BODY" =~ $closing_reference_regex ]]; then
             echo "The PR body must contain Closes #N, Fixes #N, or Resolves #N."
             exit 1
           fi
 
   approved-issue:
     name: Check Issue Has status:approved
+    needs: issue-reference
     runs-on: ubuntu-latest
     steps:
       - name: Require approval on the linked issue
@@ -32,11 +42,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          reference="$(grep -Eio -m1 '(closes|fixes|resolves) #[0-9]+' <<<"$PR_BODY")" || {
+          closing_reference_regex='(^|[^[:alnum:]_])(closes|fixes|resolves) #([0-9]+)([^[:alnum:]_]|$)'
+          shopt -s nocasematch
+          if [[ ! "$PR_BODY" =~ $closing_reference_regex ]]; then
             echo "No closing issue reference was found."
             exit 1
-          }
-          issue_number="${reference##*#}"
+          fi
+          issue_number="${BASH_REMATCH[3]}"
           issue_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}")"
 
           if jq -e 'has("pull_request")' <<<"$issue_json" >/dev/null; then
@@ -54,6 +66,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require exactly one type label
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           mapfile -t type_labels < <(
             jq -r '.pull_request.labels[].name | select(startswith("type:"))' "$GITHUB_EVENT_PATH"
@@ -64,4 +78,37 @@ jobs:
             exit 1
           fi
 
-          echo "Found ${type_labels[0]}."
+          selected_label="${type_labels[0]}"
+          case "$selected_label" in
+            type:bug|type:feature|type:docs|type:refactor|type:chore|type:breaking-change) ;;
+            *)
+              echo "${selected_label} is not a documented PR type label."
+              exit 1
+              ;;
+          esac
+
+          checked_type_labels=()
+          shopt -s nocasematch
+          while IFS= read -r line; do
+            line="${line%$'\r'}"
+            case "$line" in
+              '- [x] Bug fix (`type:bug`)') checked_type_labels+=("type:bug") ;;
+              '- [x] New feature (`type:feature`)') checked_type_labels+=("type:feature") ;;
+              '- [x] Documentation only (`type:docs`)') checked_type_labels+=("type:docs") ;;
+              '- [x] Code refactoring (`type:refactor`)') checked_type_labels+=("type:refactor") ;;
+              '- [x] Maintenance/tooling (`type:chore`)') checked_type_labels+=("type:chore") ;;
+              '- [x] Breaking change (`type:breaking-change`)') checked_type_labels+=("type:breaking-change") ;;
+            esac
+          done <<<"$PR_BODY"
+
+          if (( ${#checked_type_labels[@]} != 1 )); then
+            echo "Select exactly one documented PR type checkbox."
+            exit 1
+          fi
+
+          if [[ "${checked_type_labels[0]}" != "$selected_label" ]]; then
+            echo "The selected PR type checkbox must match ${selected_label}."
+            exit 1
+          fi
+
+          echo "Found ${selected_label} with a matching PR type checkbox."
