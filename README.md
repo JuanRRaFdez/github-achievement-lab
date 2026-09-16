@@ -1,2 +1,3 @@
 # github-achievement-lab
-Safe sandbox for learning GitHub workflows and achievements
+
+A safe sandbox for practicing GitHub issues and pull requests through small, controlled workflow experiments.
